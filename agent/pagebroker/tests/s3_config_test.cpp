@@ -23,7 +23,7 @@ class S3CredentialsTest : public ::testing::Test {
  protected:
   void SetUp() override
   {
-    for (const auto* name : {"AWS_SHARED_CREDENTIALS_FILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+    for (const auto* name : {"SNAPSHOT_S3_CREDENTIALS_SOURCE", "AWS_SHARED_CREDENTIALS_FILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
                             "AWS_SESSION_TOKEN", "AWS_PROFILE", "AWS_CA_BUNDLE", "RUNAI_STREAMER_LOG_LEVEL"}) {
       const auto* value = std::getenv(name);
       saved_.push_back({name, value ? std::optional<std::string>(value) : std::nullopt});

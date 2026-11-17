@@ -37,6 +37,10 @@ constexpr char kUploadActiveFilesKey[] = "uploadActiveFiles";
 constexpr char kRequestSecondsKey[] = "requestSeconds";
 constexpr char kUploadRequestRetriesKey[] = "uploadRequestRetries";
 constexpr char kUploadConnectSecondsKey[] = "uploadConnectSeconds";
+// Accepted only for stale ConfigMaps from the first workload-identity build.
+// Authentication belongs to this pod, not to the independently updated JSON.
+constexpr char kCredentialsSourceKey[] = "credentialsSource";
+constexpr char kCredentialsSourceEnv[] = "SNAPSHOT_S3_CREDENTIALS_SOURCE";
 constexpr char kCredentialsFileEnv[] = "AWS_SHARED_CREDENTIALS_FILE";
 constexpr char kDefaultProfile[] = "default";
 constexpr char kAccessKey[] = "aws_access_key_id";
@@ -134,7 +138,7 @@ ReadField(const Json& value, const char* key)
 void
 ValidateConfigFields(const Json& value)
 {
-  const std::set<std::string> fields{kStoreIdKey, kEndpointKey, kRegionKey, kBucketKey, kPrefixKey, kAddressingKey, kCaFileKey, kAllowHttpKey, kLimitsKey};
+  const std::set<std::string> fields{kStoreIdKey, kEndpointKey, kRegionKey, kBucketKey, kPrefixKey, kAddressingKey, kCaFileKey, kAllowHttpKey, kLimitsKey, kCredentialsSourceKey};
   if (!value.is_object())
     throw std::invalid_argument("S3 configuration must be an object");
   for (const auto& [key, ignored] : value.items()) {
@@ -158,6 +162,10 @@ S3Connection
 ParseConnection(const Json& value)
 {
   S3Connection connection;
+  const auto source = Environment(kCredentialsSourceEnv);
+  if (!source.empty() && source != "file" && source != "workloadIdentity")
+    throw std::invalid_argument("SNAPSHOT_S3_CREDENTIALS_SOURCE must be file or workloadIdentity");
+  connection.use_default_credentials = source == "workloadIdentity";
   connection.endpoint = ReadField<std::string>(value, kEndpointKey);
   connection.region = ReadField<std::string>(value, kRegionKey);
 
@@ -301,6 +309,19 @@ LoadS3Credentials(S3Connection connection)
   if (connection.ca_file.empty())
     connection.ca_file = Environment(kAwsCaBundleEnv);
   connection.Validate();
+  if (connection.use_default_credentials) {
+    // Static credentials would silently take precedence over the renewable provider.
+    for (const auto* name : {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}) {
+      if (!Environment(name).empty())
+        throw std::invalid_argument("workload identity cannot use static AWS environment credentials");
+    }
+    if (!Environment("AWS_WEB_IDENTITY_TOKEN_FILE").empty() || !Environment("AWS_ROLE_ARN").empty())
+      throw std::invalid_argument("workload identity uses the container credentials endpoint, not AWS STS");
+    if (Environment("AWS_CONTAINER_CREDENTIALS_FULL_URI").empty() ||
+        Environment("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE").empty())
+      throw std::invalid_argument("workload identity requires AWS_CONTAINER_CREDENTIALS_FULL_URI and AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE");
+    return connection;
+  }
   const auto path = Environment(kCredentialsFileEnv);
   if (path.empty())
     throw std::invalid_argument("AWS_SHARED_CREDENTIALS_FILE is required for S3");

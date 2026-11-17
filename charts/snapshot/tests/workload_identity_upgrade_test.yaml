@@ -1,0 +1,78 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+suite: upgrades reusing values from before workload identity
+# Defaults from 010a1eb9^, before storage.s3.workloadIdentity was introduced.
+values:
+  - fixtures/pre-workload-identity-values.yaml
+release:
+  name: snapshot
+  namespace: upgrade-ns
+  isUpgrade: true
+templates:
+  - templates/configmap.yaml
+  - templates/daemonset.yaml
+  - templates/operator-deployment.yaml
+  - templates/operator-rbac.yaml
+tests:
+  - it: renders a legacy PVC upgrade without workload identity values
+    # helm-unittest merges current defaults; null removes the new map to
+    # reproduce --reuse-values, which does not add new chart defaults.
+    set:
+      storage.s3.workloadIdentity: null
+      operator.serviceAccount: null
+    asserts:
+      - isKind:
+          of: DaemonSet
+        template: templates/daemonset.yaml
+      - isNotEmpty:
+          path: spec.template.metadata.annotations["checksum/config"]
+        template: templates/operator-deployment.yaml
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: s3-identity
+          any: true
+        template: templates/daemonset.yaml
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: s3-identity
+          any: true
+        template: templates/operator-deployment.yaml
+
+  - it: preserves credentials-file authentication for a legacy S3 upgrade
+    set:
+      storage.s3.workloadIdentity: null
+      operator.serviceAccount: null
+      storage.type: s3
+      operator.bindNewContents: true
+      storage.s3.endpoint: https://s3.example.com
+      storage.s3.region: test-region
+      storage.s3.bucket: checkpoints
+      storage.s3.credentialsSecretRef: existing-s3-credentials
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: s3-credentials
+            secret:
+              secretName: existing-s3-credentials
+              items:
+                - key: credentials
+                  path: credentials
+        template: templates/daemonset.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: s3-credentials
+            secret:
+              secretName: existing-s3-credentials
+              items:
+                - key: credentials
+                  path: credentials
+        template: templates/operator-deployment.yaml
+      - notMatchRegex:
+          path: data["pagebroker-s3.yaml"]
+          pattern: 'credentialsSource: workloadIdentity'
+        template: templates/configmap.yaml

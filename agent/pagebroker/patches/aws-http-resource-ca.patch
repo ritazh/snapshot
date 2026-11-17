@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Temporary dependency fix: belongs in AWS SDK for C++ (AWSHttpResourceClient),
+# carried by ModelStreamer until its SDK release includes the upstream fix.
+# Remove this patch and the S3-plugin rebuild when that release is consumed.
+--- a/src/aws-cpp-sdk-core/source/internal/AWSHttpResourceClient.cpp
++++ b/src/aws-cpp-sdk-core/source/internal/AWSHttpResourceClient.cpp
+@@ -51,6 +51,9 @@
+         {
+             ClientConfiguration res;
+ 
++            // Reuse the CA bundle already configured for S3, including HTTPS
++            // container-credential endpoints. Keep SDK token and refresh handling.
++            res.caFile = Aws::Environment::GetEnv("AWS_CA_BUNDLE");
+             res.maxConnections = 2;
+             res.scheme = Scheme::HTTP;
+ 

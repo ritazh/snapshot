@@ -308,7 +308,7 @@ tests:
       storage.s3.bucket: snapshot-bucket
     asserts:
       - failedTemplate:
-          errorMessage: storage.s3.credentialsSecretRef is required when storage.type=s3
+          errorMessage: storage.s3.credentialsSecretRef is required when storage.type=s3 unless workloadIdentity.enabled
 
   - it: honours a custom shared credentials secret key
     template: templates/operator-deployment.yaml
@@ -333,3 +333,74 @@ tests:
               items:
                 - key: aws-credentials
                   path: aws-credentials
+
+  - it: rejects combining workload identity and a credentials Secret
+    template: templates/configmap.yaml
+    set:
+      storage.type: s3
+      storage.s3.credentialsSecretRef: existing-secret
+      storage.s3.workloadIdentity.enabled: true
+      operator.bindNewContents: true
+    asserts:
+      - failedTemplate:
+          errorMessage: storage.s3.workloadIdentity and credentialsSecretRef cannot be combined
+
+  - it: configures renewable credentials and rotating token mounts in both S3 clients
+    set:
+      storage.type: s3
+      storage.s3.endpoint: https://s3.example.com
+      storage.s3.region: test-region
+      storage.s3.bucket: test-bucket
+      storage.s3.workloadIdentity.enabled: true
+      storage.s3.workloadIdentity.tokenAudience: test-audience
+      storage.s3.workloadIdentity.env:
+        - name: AWS_CONTAINER_CREDENTIALS_FULL_URI
+          value: https://credentials.example.com
+        - name: AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE
+          value: /var/run/secrets/snapshot-identity/token
+      operator.bindNewContents: true
+    asserts:
+      - matchRegex:
+          path: data["pagebroker-s3.yaml"]
+          pattern: 'credentialsSource: workloadIdentity'
+        template: templates/configmap.yaml
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: SNAPSHOT_S3_CREDENTIALS_SOURCE
+            value: workloadIdentity
+        template: templates/daemonset.yaml
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE
+            value: /var/run/secrets/snapshot-identity/token
+        template: templates/daemonset.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE
+            value: /var/run/secrets/snapshot-identity/token
+        template: templates/operator-deployment.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: s3-identity
+            projected:
+              sources:
+                - serviceAccountToken:
+                    path: token
+                    audience: test-audience
+                    expirationSeconds: 3600
+        template: templates/daemonset.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: s3-identity
+            projected:
+              sources:
+                - serviceAccountToken:
+                    path: token
+                    audience: test-audience
+                    expirationSeconds: 3600
+        template: templates/operator-deployment.yaml

@@ -104,3 +104,16 @@ func TestEnsurePageBrokerS3ConfigOmitsAbsentSettings(t *testing.T) {
 	assert.JSONEq(t, `{"storeId":"store-v1-abc","endpoint":"https://s3.example.com","region":"us-east-1","bucket":"snapshot-bucket"}`,
 		cm.Data[PageBrokerS3ConfigKey])
 }
+
+func TestEnsurePageBrokerS3ConfigOmitsPodAuthenticationMode(t *testing.T) {
+	c := fakeClient(t).Build()
+	location := storage.S3{Endpoint: "https://s3.example.com", Region: "us-east-1", Bucket: "snapshot-bucket"}
+	// Exercise both transitions against the same ConfigMap: neither may
+	// change the authentication selected by an old or replacement pod.
+	for _, source := range []string{"workloadIdentity", "file", "workloadIdentity"} {
+		require.NoError(t, ensurePageBrokerS3Config(t.Context(), c, "snapshot", "snapshot-pagebroker-storage-config", nil, location, "store-v1-abc", pageBrokerS3Settings{CredentialsSource: source}))
+		var cm corev1.ConfigMap
+		require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "snapshot", Name: "snapshot-pagebroker-storage-config"}, &cm))
+		assert.NotContains(t, cm.Data[PageBrokerS3ConfigKey], "credentialsSource")
+	}
+}

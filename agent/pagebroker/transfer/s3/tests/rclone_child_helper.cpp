@@ -30,6 +30,17 @@ main(int argc, char** argv)
       return 8;
   }
   const std::string remote(argv[3]);
+  if (remote == "pagebroker:bucket/workload-identity") {
+    const auto* auth = std::getenv("RCLONE_CONFIG_PAGEBROKER_ENV_AUTH");
+    const auto* file = std::getenv("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE");
+    if (!auth || std::string(auth) != "true" || !file ||
+        std::getenv("RCLONE_CONFIG_PAGEBROKER_ACCESS_KEY_ID") || std::getenv("AWS_ACCESS_KEY_ID") ||
+        std::getenv("PATH") || std::getenv("AWS_CONTAINER_AUTHORIZATION_TOKEN"))
+      return 11;
+    std::string token;
+    std::getline(std::ifstream(file), token);
+    return token == "rotated-fake-token" ? 0 : 12;
+  }
   if (remote == "pagebroker:bucket/buffer-limit") {
     auto has_argument = [&](const std::string& flag, const std::string& value) {
       for (int i = 4; i + 1 < argc; ++i) {

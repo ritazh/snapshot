@@ -320,6 +320,14 @@ ConfigureEnvironment(const Options& options, const S3Config* storage)
     environment[kS3VirtualAddressingEnv] = connection.use_virtual_addressing
         ? kS3VirtualAddressingEnabled : kS3VirtualAddressingDisabled;
     environment[kAwsEc2MetadataDisabledEnv] = kDisableEc2Metadata;
+    if (connection.use_default_credentials) {
+      // The native S3 plugin uses its AWS default provider chain when no keys are
+      // supplied. Do not let a local profile override the projected identity.
+      environment["AWS_SHARED_CREDENTIALS_FILE"] = "/dev/null";
+      environment["AWS_CONFIG_FILE"] = "/dev/null";
+      environment["AWS_REGION"] = connection.region;
+      environment["AWS_DEFAULT_REGION"] = connection.region;
+    }
     environment[kAwsCaBundleEnv] = connection.ca_file;
   }
   for (const auto& [name, value] : environment) {

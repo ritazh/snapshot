@@ -35,3 +35,12 @@ func TestArtifactCleanupConfigValidateS3RequiresS3Config(t *testing.T) {
 	cfg.BackendType = "s3"
 	require.ErrorContains(t, cfg.Validate(), "artifact cleanup s3 config is required")
 }
+
+func TestS3WorkloadIdentityDoesNotRequireCredentialsFile(t *testing.T) {
+	cfg := S3Config{Bucket: "checkpoints", Region: "us-east-1", WorkloadIdentity: true}
+	require.NoError(t, cfg.Validate())
+	cfg.CredentialsPath = "/credentials"
+	require.ErrorContains(t, cfg.Validate(), "cannot use a credentials file")
+	cfg.WorkloadIdentity = false
+	require.NoError(t, cfg.Validate())
+}

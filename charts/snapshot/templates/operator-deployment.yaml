@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+{{- $workloadIdentity := .Values.storage.s3.workloadIdentity | default dict -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -101,16 +102,23 @@ spec:
             - {{ printf "--pagebroker-s3-config-namespace=%s" .Release.Namespace | quote }}
             - {{ printf "--pagebroker-s3-config-name=%s" (include "snapshot.pageBrokerS3ConfigName" .) | quote }}
             - {{ printf "--release-name=%s" .Release.Name | quote }}
+            {{- if not $workloadIdentity.enabled }}
             - {{ printf "--artifact-cleanup-s3-credentials-path=%s/%s" (include "snapshot.s3CredentialsMountDir" .) .Values.storage.s3.credentialsSecretKey | quote }}
+            {{- end }}
             - --pagebroker-s3-settings=/etc/snapshot/pagebroker-s3.yaml
             {{- if .Values.storage.s3.caBundleConfigMapRef }}
             - {{ printf "--artifact-cleanup-s3-ca-bundle-path=%s" (include "snapshot.s3CABundlePath" .) | quote }}
             {{- end }}
             {{- end }}
-          {{- if .Values.operator.testFailCaptureSourceAnnotation }}
+          {{- if or .Values.operator.testFailCaptureSourceAnnotation (and (eq .Values.storage.type "s3") $workloadIdentity.enabled) }}
           env:
+            {{- if and (eq .Values.storage.type "s3") $workloadIdentity.enabled }}
+            {{- include "snapshot.s3IdentityEnvironment" . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.operator.testFailCaptureSourceAnnotation }}
             - name: SNAPSHOT_E2E_TEST_FAIL_CAPTURE_SOURCE_ANNOTATION
               value: {{ .Values.operator.testFailCaptureSourceAnnotation | quote }}
+            {{- end }}
           {{- end }}
           volumeMounts:
             {{- if eq .Values.storage.type "pvc" }}
@@ -120,11 +128,12 @@ spec:
             - name: storage-config
               mountPath: /etc/snapshot
               readOnly: true
-            {{- if eq .Values.storage.type "s3" }}
+            {{- if and (eq .Values.storage.type "s3") (not $workloadIdentity.enabled) }}
             - name: s3-credentials
               mountPath: {{ include "snapshot.s3CredentialsMountDir" . }}
               readOnly: true
             {{- end }}
+            {{- include "snapshot.s3IdentityMount" . | nindent 12 }}
             {{- if and (eq .Values.storage.type "s3") .Values.storage.s3.caBundleConfigMapRef }}
             - name: s3-ca-bundle
               mountPath: {{ include "snapshot.s3CABundleMountDir" . }}
@@ -146,7 +155,7 @@ spec:
               - key: pagebroker-s3.yaml
                 path: pagebroker-s3.yaml
               {{- end }}
-        {{- if eq .Values.storage.type "s3" }}
+        {{- if and (eq .Values.storage.type "s3") (not $workloadIdentity.enabled) }}
         - name: s3-credentials
           secret:
             secretName: {{ .Values.storage.s3.credentialsSecretRef }}
@@ -154,6 +163,7 @@ spec:
               - key: {{ .Values.storage.s3.credentialsSecretKey }}
                 path: {{ .Values.storage.s3.credentialsSecretKey }}
         {{- end }}
+        {{- include "snapshot.s3IdentityVolume" . | nindent 8 }}
         {{- if and (eq .Values.storage.type "s3") .Values.storage.s3.caBundleConfigMapRef }}
         - name: s3-ca-bundle
           configMap:

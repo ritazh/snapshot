@@ -106,10 +106,47 @@ With `storage.type: s3`, set these values:
 - `storage.s3.endpoint` - S3-compatible endpoint
 - `storage.s3.region` - Bucket region
 - `storage.s3.bucket` - Bucket that holds the snapshots
-- `storage.s3.credentialsSecretRef` - Secret that holds the credentials file
+- `storage.s3.credentialsSecretRef` - Secret that holds the credentials file, unless workload identity is enabled
 
 See [Helm Chart Values](../reference/helm-values.md#storage) for all S3 values,
 including the key prefix and the credentials key.
+
+### CoreWeave OIDC Credentials
+
+For CoreWeave Object Storage, opt in to the AWS SDK container credentials
+provider. It exchanges a projected Kubernetes service-account token at CoreWeave's
+OIDC endpoint and refreshes temporary credentials during uploads, restores, and
+operator cleanup. It does not use AWS STS or require an AWS IAM role.
+
+```yaml
+storage:
+  type: s3
+  s3:
+    endpoint: https://<object-storage-endpoint>
+    addressing: virtual
+    region: <bucket-region>
+    bucket: <bucket>
+    credentialsSecretRef: ""
+    workloadIdentity:
+      enabled: true
+      tokenAudience: <audience-configured-for-your-identity-provider>
+      env:
+        - name: AWS_CONTAINER_CREDENTIALS_FULL_URI
+          value: https://api.coreweave.com/v1/cwobject/temporary-credentials/oidc/<org-id>
+        - name: AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE
+          value: /var/run/secrets/snapshot-identity/token
+```
+
+To reuse an OIDC-authorized service account for the operator, set
+`operator.serviceAccount.create: false` and `operator.serviceAccount.name` to that
+account. Its existing Kubernetes role bindings are rendered for that name.
+
+Grant both the agent and operator service-account identities access to the bucket
+and prefix through CoreWeave workload identity federation. The chart projects a
+rotating token into both S3 clients when `tokenAudience` is set; an admission
+webhook may supply the token mount and environment instead. Do not also configure
+static AWS environment credentials. Existing Secret-based authentication remains
+the default and PageBroker still reads those credentials once at startup.
 
 ### Optional S3 Settings
 

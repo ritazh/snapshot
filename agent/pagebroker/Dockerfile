@@ -55,6 +55,10 @@ RUN find /tmp/nixl/subprojects -type f \( -iname 'license*' -o -iname 'copying*'
       done < /tmp/nixl-notices > /nixl-runtime/THIRD-PARTY-NOTICES.txt
 RUN git -C /tmp/nvtx rev-parse HEAD > /NVTX_COMMIT
 
+# The pinned upstream SDK builder contains static dependencies for BOTH target
+# architectures. It is only a COPY source; ARM64 builders need no AMD64 emulation.
+FROM --platform=linux/amd64 ghcr.io/dsx-ai-factory/model-streamer/devcontainer@sha256:180d27f54a84d70669052d592916f5dab7bef2255025586001e31d963cd82654 AS model-streamer-dependencies
+
 # Download the release SDK inside the PageBroker build so every image builder
 # uses the same checksummed headers and library without preparing local inputs.
 FROM ${DOCKER_PROXY}library/${PAGEBROKER_BUILD_IMAGE} AS model-streamer-amd64
@@ -87,12 +91,29 @@ RUN sha256sum -c /tmp/model-streamer-sdk.sha256 \
       "${MODEL_STREAMER_VERSION}" "${MODEL_STREAMER_REF}" > legal/UPSTREAM.txt
 
 # Preserve corresponding sources for the core library and its statically linked
-# I/O dependencies. These archives are attribution inputs, not build inputs.
-# Dependency versions and checksums follow Model Streamer's pinned build (see
-# legal/UPSTREAM.txt); changing these archives does not change the prebuilt SDK.
+# I/O dependencies. The ModelStreamer archive also supplies the S3-plugin
+# sources for the temporary rebuild below; the other archives are attribution
+# inputs. Versions and checksums follow its pinned build (legal/UPSTREAM.txt).
 ADD --checksum=sha256:c344e2ee677a3c3e4cb65fc7ab1e04918d85c2f7268e9d4465a895cea2082499 https://codeload.github.com/dsx-ai-factory/model-streamer/tar.gz/${MODEL_STREAMER_REF} /opt/model-streamer-sdk/legal/source/model-streamer.tar.gz
 ADD --checksum=sha256:2c44d1c5fd0d43752287c9ae1eb9c023f04ef848ea8d4aafa46e9aedb678200b https://deb.debian.org/debian/pool/main/liba/libaio/libaio_0.3.113.orig.tar.gz /opt/model-streamer-sdk/legal/source/libaio.tar.gz
 ADD --checksum=sha256:5f80964108981c6ad979c735f0b4877d5f49914c2a062f8e88282f26bf61de0c https://github.com/axboe/liburing/archive/refs/tags/liburing-2.14.tar.gz /opt/model-streamer-sdk/legal/source/liburing.tar.gz
+
+# Temporary dependency workaround: AWS SDK 1.11.584's credential HTTP
+# client does not pick up AWS_CA_BUNDLE. The fix belongs in AWS SDK for C++
+# (AWSHttpResourceClient.cpp), then in a published ModelStreamer SDK. Remove
+# this rebuild, patches/, and model-streamer-dependencies when consuming that
+# release. Keep the core library, headers, and all dependency versions unchanged.
+COPY --from=model-streamer-dependencies /opt/${MODEL_STREAMER_ARCH}-aws/ /opt/sdk-dependencies/aws/
+COPY --from=model-streamer-dependencies /opt/${MODEL_STREAMER_ARCH}-curl/ /opt/sdk-dependencies/curl/
+COPY --from=model-streamer-dependencies /opt/${MODEL_STREAMER_ARCH}-ssl/ /opt/sdk-dependencies/ssl/
+COPY --from=model-streamer-dependencies /opt/${MODEL_STREAMER_ARCH}-zlib/ /opt/sdk-dependencies/zlib/
+ADD --checksum=sha256:755b8862d38620668f5336d664cb92a3cc353b0b5ad39cc2bef9e885200734a2 https://raw.githubusercontent.com/aws/aws-sdk-cpp/1.11.584/src/aws-cpp-sdk-core/source/internal/AWSHttpResourceClient.cpp /opt/model-streamer-sdk/legal/source/AWSHttpResourceClient.cpp
+COPY patches/ /tmp/sdk-patches/
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates patch \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /tmp/model-streamer \
+    && tar -xzf legal/source/model-streamer.tar.gz --strip-components=1 -C /tmp/model-streamer \
+    && sh /tmp/sdk-patches/build-model-streamer-s3.sh /tmp/model-streamer /opt/model-streamer-sdk /opt/sdk-dependencies
 
 # Native builds can export the same SDK without building the daemon image.
 FROM scratch AS model-streamer-sdk
@@ -156,6 +177,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nlohmann-json3-dev=3.11.3-1 \
     pkg-config \
     protobuf-compiler \
+    python3 \
+    openssl \
     && sh compliance/collect-sources.sh /legal/source/protobuf libprotobuf-dev \
     && sh compliance/collect-sources.sh /legal/source/libaio libaio1t64 \
     && rm -rf /var/lib/apt/lists/*

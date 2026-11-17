@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+{{- $workloadIdentity := .Values.storage.s3.workloadIdentity | default dict -}}
 apiVersion: v1
 kind: ConfigMap
 {{- if and (ne .Values.storage.type "pvc") (ne .Values.storage.type "s3") }}
@@ -12,8 +13,8 @@ kind: ConfigMap
 {{- if and .Values.operator.bindNewContents (eq .Values.storage.type "pvc") (not .Values.pageBroker.artifactAddressing) }}
 {{- fail "operator.bindNewContents requires pageBroker.artifactAddressing and a completed compatible agent rollout" }}
 {{- end }}
-{{- if and (eq .Values.storage.type "s3") (not .Values.storage.s3.credentialsSecretRef) }}
-{{- fail "storage.s3.credentialsSecretRef is required when storage.type=s3" }}
+{{- if and (eq .Values.storage.type "s3") (not .Values.storage.s3.credentialsSecretRef) (not $workloadIdentity.enabled) }}
+{{- fail "storage.s3.credentialsSecretRef is required when storage.type=s3 unless workloadIdentity.enabled" }}
 {{- end }}
 {{- if and (eq .Values.storage.type "s3") (not .Values.operator.bindNewContents) }}
 {{- fail "storage.type=s3 requires operator.bindNewContents: S3 has no legacy local-path checkpoint mode" }}
@@ -23,6 +24,9 @@ kind: ConfigMap
 {{- end }}
 {{- if hasKey .Values.config.restore "restoreTimeoutSeconds" }}
 {{- fail "config.restore.restoreTimeoutSeconds was renamed to config.restore.timeoutSeconds" }}
+{{- end }}
+{{- if and (eq .Values.storage.type "s3") $workloadIdentity.enabled .Values.storage.s3.credentialsSecretRef }}
+{{- fail "storage.s3.workloadIdentity and credentialsSecretRef cannot be combined" }}
 {{- end }}
 {{- include "snapshot.validateS3Settings" . }}
 metadata:
@@ -56,6 +60,9 @@ data:
   # operator merges them into the JSON file PageBroker reads; the DaemonSet
   # sets the environment PageBroker checks them against.
   pagebroker-s3.yaml: |
+    {{- if $workloadIdentity.enabled }}
+    credentialsSource: workloadIdentity
+    {{- end }}
     {{- with .Values.storage.s3.addressing }}
     addressing: {{ . | quote }}
     {{- end }}

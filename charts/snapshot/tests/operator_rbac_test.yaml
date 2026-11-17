@@ -45,3 +45,55 @@ tests:
             resources: ["configmaps"]
             resourceNames: ["snapshot-pagebroker-storage-config"]
             verbs: ["get", "update"]
+
+  - it: keeps the generated operator service account by default
+    documentSelector:
+      path: kind
+      value: ServiceAccount
+    asserts:
+      - equal:
+          path: metadata.name
+          value: snapshot-operator
+
+  - it: creates a custom operator service account when requested
+    set:
+      operator.serviceAccount.name: authorized-operator
+    documentSelector:
+      path: kind
+      value: ServiceAccount
+    asserts:
+      - equal:
+          path: metadata.name
+          value: authorized-operator
+
+  - it: reuses an existing account without creating a duplicate
+    set:
+      operator.serviceAccount.create: false
+      operator.serviceAccount.name: authorized-operator
+    asserts:
+      - hasDocuments:
+          count: 4
+
+  - it: grants controller permissions to the configured account
+    set:
+      operator.serviceAccount.create: false
+      operator.serviceAccount.name: authorized-operator
+    documentSelector:
+      path: kind
+      value: ClusterRoleBinding
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: authorized-operator
+
+  - it: grants leader election permissions to the configured account
+    set:
+      operator.serviceAccount.create: false
+      operator.serviceAccount.name: authorized-operator
+    documentSelector:
+      path: kind
+      value: RoleBinding
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: authorized-operator

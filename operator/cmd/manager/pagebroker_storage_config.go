@@ -51,6 +51,9 @@ const DefaultPageBrokerS3ConfigName = "pagebroker-s3-config"
 // this function can attach without a Kubernetes ownerReference, which is not
 // wired up here.
 func ensurePageBrokerS3Config(ctx context.Context, c client.Client, namespace, name string, labels map[string]string, s3 storage.S3, storeID string, settings pageBrokerS3Settings) error {
+	// Authentication must match each PageBroker pod's own mounts/environment,
+	// independently of when this shared ConfigMap is updated during rollout.
+	settings.CredentialsSource = ""
 	body, err := json.Marshal(pageBrokerS3Config{
 		StoreID:              storeID,
 		Endpoint:             s3.Endpoint,

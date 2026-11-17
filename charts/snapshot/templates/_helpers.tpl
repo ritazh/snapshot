@@ -68,7 +68,8 @@ Create the name of the agent service account to use
 Name of the operator service account.
 */}}
 {{- define "snapshot.operatorServiceAccountName" -}}
-{{- printf "%s-operator" (include "snapshot.fullname" .) }}
+{{- $serviceAccount := .Values.operator.serviceAccount | default dict -}}
+{{- default (printf "%s-operator" (include "snapshot.fullname" .)) $serviceAccount.name }}
 {{- end }}
 
 {{/*
@@ -230,7 +231,12 @@ reads for rootfs-diff capture, and CRI-O config.json fallback).
      default stagingBytes is derived from it together with both containers'
      memory limits, so a change to either limit must also roll both. */}}
 {{- define "snapshot.operatorConfigChecksum" -}}
-{{- toYaml (dict "storage" .Values.storage "pageBrokerS3" .Values.pageBroker.s3 "modelStreamer" .Values.pageBroker.transferEngine.modelStreamer "stagingSizeLimit" (include "snapshot.stagingSizeLimit" .)) | sha256sum -}}
+{{- $workloadIdentity := .Values.storage.s3.workloadIdentity | default dict -}}
+{{- $storage := deepCopy .Values.storage -}}
+{{- if not $workloadIdentity.enabled -}}
+{{- $_ := unset $storage.s3 "workloadIdentity" -}}
+{{- end -}}
+{{- toYaml (dict "storage" $storage "pageBrokerS3" .Values.pageBroker.s3 "modelStreamer" .Values.pageBroker.transferEngine.modelStreamer "stagingSizeLimit" (include "snapshot.stagingSizeLimit" .)) | sha256sum -}}
 {{- end -}}
 {{- define "snapshot.modelStreamerConfigPath" -}}{{ include "snapshot.modelStreamerMountDir" . }}/model-streamer.json{{- end -}}
 
@@ -291,3 +297,33 @@ reads for rootfs-diff capture, and CRI-O config.json fallback).
 - name: NVIDIA_DRIVER_CAPABILITIES
   value: compute,utility
 {{- end -}}
+
+{{/* Shared pod-identity wiring for PageBroker and the operator's S3 client. */}}
+{{- define "snapshot.s3IdentityEnvironment" -}}
+{{- $workloadIdentity := .Values.storage.s3.workloadIdentity | default dict -}}
+{{- with $workloadIdentity.env }}
+{{ toYaml . }}
+{{- end }}
+{{- end }}
+
+{{- define "snapshot.s3IdentityMount" -}}
+{{- $workloadIdentity := .Values.storage.s3.workloadIdentity | default dict -}}
+{{- if and (eq .Values.storage.type "s3") $workloadIdentity.enabled $workloadIdentity.tokenAudience }}
+- name: s3-identity
+  mountPath: /var/run/secrets/snapshot-identity
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{- define "snapshot.s3IdentityVolume" -}}
+{{- $workloadIdentity := .Values.storage.s3.workloadIdentity | default dict -}}
+{{- if and (eq .Values.storage.type "s3") $workloadIdentity.enabled $workloadIdentity.tokenAudience }}
+- name: s3-identity
+  projected:
+    sources:
+      - serviceAccountToken:
+          path: token
+          audience: {{ $workloadIdentity.tokenAudience | quote }}
+          expirationSeconds: 3600
+{{- end }}
+{{- end }}

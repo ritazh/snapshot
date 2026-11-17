@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# S3 plugin transitive sources at ModelStreamer dd9e5d34f966cc2667c9f0505262050b4bedc35a.
+# Keep in sync with cpp/s3/BUILD and its dependencies when updating the SDK.
+cc/freeres/freeres.cc
+cc/portability/portability.c
+common/backend_api/object_storage/utils.cc
+common/backend_api/response/response.cc
+common/exception/exception.cc
+common/range/range.cc
+common/response/response.cc
+common/response_code/response_code.cc
+common/s3_credentials/s3_credentials.cc
+common/s3_wrapper/s3_wrapper.cc
+common/storage_uri/storage_uri.cc
+s3/client/client.cc
+s3/client_configuration/client_configuration.cc
+s3/s3.cc
+s3/s3_init/s3_init.cc
+utils/dylib/dylib.cc
+utils/env/env.cc
+utils/fd/fd.cc
+utils/logging/logging.cc
+utils/scope_guard/scope_guard.cc
+utils/semaphore/semaphore.cc
+utils/semver/semver.cc

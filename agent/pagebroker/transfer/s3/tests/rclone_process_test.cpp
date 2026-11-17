@@ -98,6 +98,29 @@ TEST_F(RcloneProcessTest, PassesLiteralArgumentsAndOnlySuppliedEnvironment)
   EXPECT_NO_THROW(Upload({"bucket", "literal/$(false); `false` with spaces quote'\""}, Deadline()));
 }
 
+TEST_F(RcloneProcessTest, PassesRenewableTokenPathInsteadOfTokenContents)
+{
+  const auto token = directory.path() / "identity-token";
+  std::ofstream(token) << "initial-fake-token";
+  const auto* old_uri = std::getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI");
+  const auto* old_file = std::getenv("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE");
+  const std::optional<std::string> saved_uri = old_uri ? std::optional<std::string>(old_uri) : std::nullopt;
+  const std::optional<std::string> saved_file = old_file ? std::optional<std::string>(old_file) : std::nullopt;
+  setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "https://credentials.example.com", 1);
+  setenv("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE", token.c_str(), 1);
+  S3Connection connection;
+  connection.use_default_credentials = true;
+  S3Client identity_client(connection);
+  std::ofstream(token) << "rotated-fake-token";
+  EXPECT_NO_THROW(identity_client.UploadFiles(directory.path(), {"bucket", "workload-identity"},
+                                               {{"source", 8}}, Deadline()));
+  if (saved_uri) setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", saved_uri->c_str(), 1);
+  else unsetenv("AWS_CONTAINER_CREDENTIALS_FULL_URI");
+  if (saved_file) setenv("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE", saved_file->c_str(), 1);
+  else unsetenv("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE");
+  ExpectReaped();
+}
+
 TEST_F(RcloneProcessTest, DividesBufferBudgetBetweenRcloneProcesses)
 {
   S3Limits limits;

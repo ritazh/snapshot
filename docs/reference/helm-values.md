@@ -44,9 +44,12 @@ values, see [values.yaml](../../charts/snapshot/values.yaml).
 | `storage.s3.region`                       | `""`           | Required with `storage.type: s3`. Bucket region.                                                                                                                                                          |
 | `storage.s3.bucket`                       | `""`           | Required with `storage.type: s3`. Bucket holding the snapshots.                                                                                                                                         |
 | `storage.s3.prefix`                       | `""`           | Key prefix inside the bucket; empty is the bucket root.                                                                                                                                                   |
-| `storage.s3.credentialsSecretRef`         | `""`           | Required with `storage.type: s3`. Secret holding a shared-credentials file, mounted into PageBroker and the operator.                                                                                     |
+| `storage.s3.credentialsSecretRef`         | `""`           | Required with `storage.type: s3` unless workload identity is enabled. Secret holding a shared-credentials file, mounted into PageBroker and the operator.                                                                                     |
+| `storage.s3.workloadIdentity.enabled` | `false` | Use CoreWeave OIDC through the AWS SDK container credentials provider instead of a credentials Secret. |
+| `storage.s3.workloadIdentity.tokenAudience` | `""` | When set, project a rotating service-account token into PageBroker and the operator. |
+| `storage.s3.workloadIdentity.env` | `[]` | Kubernetes EnvVar entries for the credentials endpoint and authorization token-file path. |
 | `storage.s3.credentialsSecretKey`         | `credentials`  | Key in that Secret holding the credentials file.                                                                                                                                                          |
-| `storage.s3.addressing`                   | `""`           | Bucket addressing PageBroker uses: `virtual` (its default when empty) or `path`.                                                                                                                          |
+| `storage.s3.addressing`                   | `""`           | Bucket addressing: `virtual` or `path`. PageBroker defaults to virtual; explicit values also apply to operator cleanup. Unset cleanup addressing retains its endpoint-dependent default.                                                                                                                          |
 | `storage.s3.allowHttp`                    | `false`        | Accept a plain-http endpoint.                                                                                                                                                                             |
 | `storage.s3.caBundleConfigMapRef`         | `""`           | ConfigMap holding the CA bundle for the endpoint's TLS certificate, mounted into PageBroker and the operator.                                                                                             |
 | `storage.s3.caBundleConfigMapKey`         | `ca.crt`       | Key in that ConfigMap holding the bundle.                                                                                                                                                                 |
@@ -102,6 +105,8 @@ payload checksums.
 
 | Value | Default | Description |
 |-------|---------|-------------|
+| `operator.serviceAccount.create` | `true` | Create the operator service account when `rbac.create` is enabled; set `false` to reuse an existing account. |
+| `operator.serviceAccount.name` | `<release-fullname>-operator` | Operator service-account name, also used by its role bindings. |
 | `operator.resources` | 50m CPU / 64Mi request, 500m CPU / 256Mi limit | CPU and memory requests/limits for the operator manager. |
 | `operator.nodeSelector` | `{}` | Node selector for the operator pod. |
 | `operator.affinity` | `{}` | Affinity rules for the operator pod. |

@@ -22,6 +22,12 @@ image:
 replicaCount: 1
 
 operator:
+  serviceAccount:
+    # Create the operator service account when rbac.create is enabled.
+    # Set false to reuse an existing account; role bindings still target name.
+    create: true
+    # Defaults to <release-fullname>-operator when empty.
+    name: ""
   # Empty in normal deployments. CPU conformance tests may set this to an
   # annotation key to request a deterministic checkpoint failure for a test pod.
   testFailCaptureSourceAnnotation: ""
@@ -137,13 +143,25 @@ storage:
     # re-reads the file every 5 minutes). PageBroker does not yet: it
     # snapshots credentials once at startup, so this file reaching it is
     # forward-compatible with that changing, not a rotation guarantee today.
-    # Required when type=s3.
+    # Required when type=s3 unless workloadIdentity.enabled.
     credentialsSecretRef: ""
+    # Opt in to CoreWeave OIDC via the AWS SDK container credentials provider.
+    # Set AWS_CONTAINER_CREDENTIALS_FULL_URI and
+    # AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE through env below.
+    # Mutually exclusive with credentialsSecretRef. env uses Kubernetes EnvVar
+    # entries; a cloud admission webhook may supply them instead.
+    workloadIdentity:
+      enabled: false
+      # If set, project a rotating service-account token at
+      # /var/run/secrets/snapshot-identity/token in both S3 clients.
+      tokenAudience: ""
+      env: []
     # Key inside credentialsSecretRef holding the credentials file.
     credentialsSecretKey: credentials
     # Bucket addressing PageBroker uses against the endpoint: "virtual"
     # (bucket.endpoint/key, PageBroker's default when empty) or "path"
     # (endpoint/bucket/key), which most self-hosted S3-compatible stores need.
+    # An explicit setting also controls the operator cleanup client.
     addressing: ""
     # Accept a plain-http endpoint. PageBroker refuses one otherwise.
     allowHttp: false

@@ -69,12 +69,14 @@ func main() {
 			os.Exit(1)
 		}
 		artifactCleanupConfig.S3 = &operatortypes.S3Config{
-			Bucket:          storageCfg.S3.Bucket,
-			Prefix:          storageCfg.S3.Prefix,
-			Region:          storageCfg.S3.Region,
-			Endpoint:        storageCfg.S3.Endpoint,
-			CredentialsPath: *artifactCleanupS3CredentialsPath,
-			CABundlePath:    *artifactCleanupS3CABundlePath,
+			Bucket:           storageCfg.S3.Bucket,
+			Prefix:           storageCfg.S3.Prefix,
+			Region:           storageCfg.S3.Region,
+			Endpoint:         storageCfg.S3.Endpoint,
+			Addressing:       pageBrokerS3.Addressing,
+			WorkloadIdentity: pageBrokerS3.CredentialsSource == "workloadIdentity",
+			CredentialsPath:  *artifactCleanupS3CredentialsPath,
+			CABundlePath:     *artifactCleanupS3CABundlePath,
 		}
 	}
 	artifactCleanupConfig.StoreID = storeID

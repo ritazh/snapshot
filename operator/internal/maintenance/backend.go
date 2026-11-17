@@ -48,7 +48,7 @@ func (r *BackendRegistry) Init(ctx context.Context, cfg operatortypes.ArtifactCl
 		if cfg.S3 == nil {
 			return fmt.Errorf("s3 maintenance backend configured without an s3 config")
 		}
-		s3Backend, err := backends.NewS3Backend(ctx, backends.NewS3Config(*cfg.S3))
+		s3Backend, err := backends.NewS3Backend(ctx, *cfg.S3)
 		if err != nil {
 			return fmt.Errorf("construct S3 maintenance backend: %w", err)
 		}

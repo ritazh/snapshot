@@ -45,10 +45,20 @@ at startup. The file must contain `aws_access_key_id` and `aws_secret_access_key
 Secret symlinks are supported. Missing, malformed or incomplete files fail
 startup; environment access keys and named profiles cannot override or supplement
 them. The daemon shares that snapshot with rclone and Model Streamer.
-`S3Client` accepts only resolved connection settings and never discovers credentials.
+In file mode, `S3Client` accepts only resolved connection settings.
 Region and endpoint come from the storage JSON. The optional `AWS_CA_BUNDLE`
 fallback must be absolute. Restart PageBroker to adopt changed credentials;
-there is no automatic refresh. Credential values never appear in arguments or logs.
+there is no automatic refresh in file mode. Credential values never appear in arguments or logs.
+
+With `SNAPSHOT_S3_CREDENTIALS_SOURCE=workloadIdentity` in its pod environment,
+PageBroker instead uses the AWS SDK
+container credentials provider. Configure `AWS_CONTAINER_CREDENTIALS_FULL_URI` and
+`AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` for CoreWeave OIDC. The uploader and
+native reader keep renewable providers rather than resolved startup keys, so
+refresh can reread the rotated token file. Static AWS environment credentials are
+rejected in this mode. An unset mode keeps file authentication. The chart sets
+the mode together with the pod's identity environment and mounts; stale
+`credentialsSource` fields in the operator-written JSON are ignored. See [Configure Storage](../../../../docs/operate/configure-storage.md#coreweave-oidc-credentials).
 
 `active_files` bounds concurrent CLI processes, including metadata operations.
 A payload batch occupies one slot and transfers one file at a time. Independent

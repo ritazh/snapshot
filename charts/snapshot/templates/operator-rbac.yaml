@@ -2,6 +2,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+{{- $serviceAccount := .Values.operator.serviceAccount | default dict }}
+{{- if or (not (hasKey $serviceAccount "create")) $serviceAccount.create }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -11,6 +13,7 @@ metadata:
     {{- include "snapshot.labels" . | nindent 4 }}
     app.kubernetes.io/component: operator
 ---
+{{- end }}
 # ClusterRole for the operator reconcilers. Mirrors their kubebuilder RBAC markers.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

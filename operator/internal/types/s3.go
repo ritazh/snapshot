@@ -8,12 +8,14 @@ import "fmt"
 // S3Config configures the S3 maintenance backend. A nil *S3Config on
 // ArtifactCleanupConfig means S3 maintenance is not registered.
 type S3Config struct {
-	Bucket          string
-	Prefix          string
-	Region          string
-	Endpoint        string
-	CredentialsPath string
-	CABundlePath    string
+	Bucket           string
+	Prefix           string
+	Region           string
+	Endpoint         string
+	Addressing       string // Empty preserves the existing endpoint-dependent addressing default.
+	WorkloadIdentity bool
+	CredentialsPath  string
+	CABundlePath     string
 }
 
 func (c S3Config) Validate() error {
@@ -23,8 +25,11 @@ func (c S3Config) Validate() error {
 	if c.Region == "" {
 		return fmt.Errorf("s3 region is required")
 	}
-	if c.CredentialsPath == "" {
+	if c.CredentialsPath == "" && !c.WorkloadIdentity {
 		return fmt.Errorf("s3 credentials path is required")
+	}
+	if c.WorkloadIdentity && c.CredentialsPath != "" {
+		return fmt.Errorf("s3 workload identity cannot use a credentials file")
 	}
 	return nil
 }

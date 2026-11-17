@@ -14,6 +14,7 @@
 
 #include <array>
 #include <cerrno>
+#include <cstdlib>
 #include <charconv>
 #include <climits>
 #include <iterator>
@@ -379,6 +380,8 @@ S3Connection::Validate() const
   }
   if (!ca_file.empty() && !std::filesystem::path(ca_file).is_absolute())
     throw std::invalid_argument("S3 CA path must be absolute");
+  if (use_default_credentials && (!access_key_id.empty() || !secret_access_key.empty() || !session_token.empty()))
+    throw std::invalid_argument("workload identity cannot use explicit S3 credentials");
   if (access_key_id.empty() != secret_access_key.empty() || (!session_token.empty() && access_key_id.empty()))
     throw std::invalid_argument("S3 explicit credentials require an access key and secret key");
   if (!endpoint.empty() && !endpoint.starts_with(kHttpsEndpointPrefix) && !endpoint.starts_with(kHttpEndpointPrefix))
@@ -461,22 +464,34 @@ S3Client::S3Client(S3Connection connection, S3Limits limits) : limits_(limits)
 {
   connection.Validate();
   limits_.Validate();
-  if (connection.access_key_id.empty())
+  if (!connection.use_default_credentials && connection.access_key_id.empty())
     throw std::invalid_argument("rclone requires resolved startup S3 credentials");
   if (!connection.ca_file.empty() && !std::filesystem::is_regular_file(connection.ca_file))
     throw std::invalid_argument("S3 CA certificate file does not exist");
-  // The child receives only the startup snapshot, never ambient credential sources.
-  environment_ = {kRemoteTypeEnv,
-                  kRemoteProviderEnv,
-                  kExplicitAuthEnv,
-                  kRemoteAccessKeyEnv + connection.access_key_id,
-                  kRemoteSecretKeyEnv + connection.secret_access_key,
-                  kRemoteTokenEnv + connection.session_token,
-                  kRemoteRegionEnv + connection.region,
-                  kRemoteEndpointEnv + connection.endpoint,
-                  kDisableImdsEnv,
-                  kDisableAwsConfigEnv,
-                  kDisableAwsFileEnv};
+  // Preserve file-mode isolation. Workload identity passes only provider configuration,
+  // not a resolved key/token snapshot: the SDK reopens rotated token files on refresh.
+  environment_ = {kRemoteTypeEnv, kRemoteProviderEnv,
+                  kRemoteRegionEnv + connection.region, kRemoteEndpointEnv + connection.endpoint,
+                  kDisableImdsEnv, kDisableAwsConfigEnv, kDisableAwsFileEnv};
+  if (connection.use_default_credentials) {
+    environment_.push_back("RCLONE_CONFIG_PAGEBROKER_ENV_AUTH=true");
+    for (const auto* name : {"AWS_CONTAINER_CREDENTIALS_FULL_URI",
+                             "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"}) {
+      if (const auto* value = std::getenv(name); value && *value)
+        environment_.push_back(std::string(name) + "=" + value);
+    }
+    environment_.push_back("AWS_REGION=" + connection.region);
+    environment_.push_back("AWS_DEFAULT_REGION=" + connection.region);
+    // rclone's AWS endpoint provider uses a separate HTTP client.
+    // Supply the CA through Go's Linux root certificate search path.
+    if (!connection.ca_file.empty())
+      environment_.push_back("SSL_CERT_FILE=" + connection.ca_file);
+  } else {
+    environment_.insert(environment_.end(), {kExplicitAuthEnv,
+        kRemoteAccessKeyEnv + connection.access_key_id,
+        kRemoteSecretKeyEnv + connection.secret_access_key,
+        kRemoteTokenEnv + connection.session_token});
+  }
   arguments_.assign(std::begin(kCommonArguments), std::end(kCommonArguments));
   const std::string part_bytes = std::to_string(limits.part_size) + kBytesSuffix;
   arguments_.insert(arguments_.end(),

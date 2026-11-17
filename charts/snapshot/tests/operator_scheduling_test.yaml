@@ -46,3 +46,12 @@ tests:
       - equal:
           path: spec.template.spec.tolerations[0].effect
           value: NoSchedule
+
+  - it: uses the configured operator identity
+    set:
+      operator.serviceAccount.create: false
+      operator.serviceAccount.name: authorized-operator
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: authorized-operator

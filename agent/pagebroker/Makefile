@@ -62,7 +62,7 @@ daemon: generate
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(DAEMON_SOURCES) v1/pagebroker.pb.cc \
 		-Wl,-Bstatic -lprotobuf -Wl,-Bdynamic $(NIXL_FLAGS) $(TRANSFER_FLAGS) -ldl -o pagebroker
 
-test: s3-restore-inventory-test rclone-process-test generate build/cancellation-test build/gpu-cuda-driver.o build/gpu-engine-test    | build
+test: s3-workload-identity-integration-test s3-workload-identity-test s3-restore-inventory-test rclone-process-test generate build/cancellation-test build/gpu-cuda-driver.o build/gpu-engine-test    | build
 	./build/cancellation-test
 	./build/gpu-engine-test
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(PAGEBROKER_SOURCES) daemon.cpp tests/daemon_test.cpp $(BROKER_TEST_SOURCES) tests/filesystem_storage_test.cpp tests/storage_contract_test.cpp $(TRANSFER_TEST_SOURCES) v1/pagebroker.pb.cc $(BROKER_TEST_WRAP_FLAGS) -lprotobuf $(GTEST_FLAGS) $(NIXL_FLAGS) $(TRANSFER_FLAGS) -ldl -o build/pagebroker-test
@@ -128,3 +128,24 @@ s3-restore-inventory-test: generate | build
 	./build/s3-restore-inventory-test
 
 .PHONY: s3-restore-inventory-test
+
+# CPU-only credential-policy tests; no CUDA or native SDK libraries required.
+s3-workload-identity-test: generate | build
+	$(CXX) -I. $(CXXFLAGS) s3_config.cpp model_streamer_config.cpp \
+		transfer/s3/s3_client.cpp file_descriptor.cpp \
+		transfer/s3/tests/workload_identity_test.cpp $(GTEST_FLAGS) -o build/s3-workload-identity-test
+	./build/s3-workload-identity-test
+
+.PHONY: s3-workload-identity-test
+
+# Real rclone and native-reader SDKs against expiring loopback credentials.
+s3-workload-identity-integration-test: generate | build
+	$(CXX) -I. $(CXXFLAGS) s3_config.cpp model_streamer_config.cpp \
+		transfer/s3/s3_client.cpp file_descriptor.cpp transfer/s3/tests/workload_identity_probe.cpp -o build/s3-identity-upload-probe
+	python3 transfer/s3/tests/workload_identity_refresh_test.py build/s3-identity-upload-probe
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -DIDENTITY_NATIVE_RESTORE \
+		s3_config.cpp transfer/s3/s3_client.cpp $(RESTORE_SOURCES) \
+		transfer/s3/tests/workload_identity_probe.cpp $(MODEL_STREAMER_FLAGS) -o build/s3-identity-restore-probe
+	python3 transfer/s3/tests/workload_identity_refresh_test.py build/s3-identity-restore-probe
+
+.PHONY: s3-workload-identity-integration-test

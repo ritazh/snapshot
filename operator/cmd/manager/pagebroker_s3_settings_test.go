@@ -37,6 +37,8 @@ func TestLoadPageBrokerS3Settings(t *testing.T) {
 				Limits:     &pageBrokerS3Limits{StagingBytes: &staging, UploadRequestRetries: &retries},
 			},
 		},
+		{name: "workload identity", yaml: "credentialsSource: workloadIdentity\n", want: pageBrokerS3Settings{CredentialsSource: "workloadIdentity"}},
+		{name: "unknown credentials source", yaml: "credentialsSource: unknown\n", err: "credentialsSource must be file or workloadIdentity"},
 		{name: "limits only", yaml: "limits:\n  stagingBytes: 60129542144\n", want: pageBrokerS3Settings{Limits: &pageBrokerS3Limits{StagingBytes: &staging}}},
 		{name: "virtual addressing", yaml: "addressing: virtual\n", want: pageBrokerS3Settings{Addressing: "virtual"}},
 		{name: "unknown addressing", yaml: "addressing: dual\n", err: "addressing must be path or virtual"},

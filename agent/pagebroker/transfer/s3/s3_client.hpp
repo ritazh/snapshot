@@ -29,7 +29,9 @@ struct S3Connection {
   std::string endpoint;
   bool use_virtual_addressing = true;
   std::string ca_file;
-  // Resolved startup credentials. Never log these values.
+  // Let the AWS SDK renew workload credentials, including within one CLI transfer.
+  bool use_default_credentials = false;
+  // Resolved startup credentials in file mode. Never log these values.
   std::string access_key_id;
   std::string secret_access_key;
   std::string session_token;
@@ -100,7 +102,7 @@ class S3ResponseError : public std::runtime_error {
 // Keep the client alive until all calls return; concurrent calls share resource limits.
 class S3Client {
  public:
-  // Requires the resolved startup credential snapshot; never discovers credentials.
+  // File mode uses resolved credentials; workload identity delegates renewal to the SDK.
   explicit S3Client(S3Connection connection, S3Limits limits = {});
   S3Client(const S3Client&) = delete;
   S3Client& operator=(const S3Client&) = delete;

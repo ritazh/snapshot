@@ -15,6 +15,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials/endpointcreds"
+	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/go-logr/logr"
@@ -37,28 +39,6 @@ type s3API interface {
 	DeleteObjects(ctx context.Context, params *s3.DeleteObjectsInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error)
 }
 
-// S3Config carries what S3Backend needs to reach one bucket/prefix.
-type S3Config struct {
-	Bucket          string
-	Prefix          string
-	Region          string
-	Endpoint        string
-	CredentialsPath string
-	CABundlePath    string
-}
-
-// NewS3Config copies an operator-facing S3Config into a backends.S3Config.
-func NewS3Config(cfg operatortypes.S3Config) S3Config {
-	return S3Config{
-		Bucket:          cfg.Bucket,
-		Prefix:          cfg.Prefix,
-		Region:          cfg.Region,
-		Endpoint:        cfg.Endpoint,
-		CredentialsPath: cfg.CredentialsPath,
-		CABundlePath:    cfg.CABundlePath,
-	}
-}
-
 // S3Backend implements maintenance.Backend against one S3-compatible bucket.
 // Every artifact for a content lives under <prefix>/artifacts/<contentUID>/.
 type S3Backend struct {
@@ -67,13 +47,30 @@ type S3Backend struct {
 	artifactsPrefix string
 }
 
-// NewS3Backend constructs an S3Backend whose credentials are re-read from
-// cfg.CredentialsPath every s3CredentialsRefreshInterval.
-func NewS3Backend(ctx context.Context, cfg S3Config) (*S3Backend, error) {
+// NewS3Backend uses a renewable container credentials provider in workload-identity
+// mode; otherwise it re-reads cfg.CredentialsPath every s3CredentialsRefreshInterval.
+func NewS3Backend(ctx context.Context, cfg operatortypes.S3Config) (*S3Backend, error) {
 	loadOptions := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),
 		config.WithSharedConfigFiles([]string{}),
-		config.WithCredentialsProvider(aws.NewCredentialsCache(sharedCredentialsFileProvider(cfg.CredentialsPath))),
+	}
+	if !cfg.WorkloadIdentity {
+		loadOptions = append(loadOptions, config.WithCredentialsProvider(aws.NewCredentialsCache(sharedCredentialsFileProvider(cfg.CredentialsPath))))
+	} else {
+		for _, name := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"} {
+			if os.Getenv(name) != "" {
+				return nil, fmt.Errorf("S3 workload identity cannot use static AWS environment credentials")
+			}
+		}
+		if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" || os.Getenv("AWS_ROLE_ARN") != "" {
+			return nil, fmt.Errorf("S3 workload identity uses the container credentials endpoint, not AWS STS")
+		}
+		if os.Getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI") == "" || os.Getenv("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE") == "" {
+			return nil, fmt.Errorf("S3 workload identity requires AWS_CONTAINER_CREDENTIALS_FULL_URI and AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE")
+		}
+		// Load transport settings without resolving the ambient credential chain.
+		// The explicit endpoint provider below must own identity selection.
+		loadOptions = append(loadOptions, config.WithCredentialsProvider(aws.AnonymousCredentials{}), config.WithSharedCredentialsFiles([]string{}), config.WithEC2IMDSClientEnableState(imds.ClientDisabled))
 	}
 	if cfg.CABundlePath != "" {
 		caBundle, err := readCABundle(cfg.CABundlePath)
@@ -86,11 +83,29 @@ func NewS3Backend(ctx context.Context, cfg S3Config) (*S3Backend, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load S3 client config: %w", err)
 	}
+	if cfg.WorkloadIdentity {
+		tokenPath := os.Getenv("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE")
+		provider := endpointcreds.New(os.Getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI"), func(o *endpointcreds.Options) {
+			// Reuse the CA-configured transport for the HTTPS identity endpoint.
+			o.HTTPClient = awsCfg.HTTPClient
+			o.AuthorizationTokenProvider = endpointcreds.TokenProviderFunc(func() (string, error) {
+				token, err := os.ReadFile(tokenPath)
+				if err != nil {
+					return "", fmt.Errorf("read S3 workload identity token: %w", err)
+				}
+				return string(token), nil
+			})
+		})
+		// Cache temporary credentials, not the projected token. Each refresh
+		// rereads its file and always uses FULL_URI, regardless of ambient aliases
+		// or AWS_CONTAINER_CREDENTIALS_RELATIVE_URI.
+		awsCfg.Credentials = aws.NewCredentialsCache(provider)
+	}
 	b := &S3Backend{}
 	b.client = s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		if cfg.Endpoint != "" {
 			o.BaseEndpoint = aws.String(cfg.Endpoint)
-			o.UsePathStyle = true
+			o.UsePathStyle = cfg.Addressing != "virtual"
 		}
 	})
 	b.bucket = cfg.Bucket

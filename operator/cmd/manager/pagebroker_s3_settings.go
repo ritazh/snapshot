@@ -15,10 +15,11 @@ import (
 // pageBrokerS3Settings are the members of PageBroker's S3 configuration that
 // are not store identity inputs. The chart renders them beside storage.yaml.
 type pageBrokerS3Settings struct {
-	Addressing string              `json:"addressing,omitempty"`
-	AllowHTTP  bool                `json:"allowHttp,omitempty"`
-	CAFile     string              `json:"caFile,omitempty"`
-	Limits     *pageBrokerS3Limits `json:"limits,omitempty"`
+	CredentialsSource string              `json:"credentialsSource,omitempty"` // Operator cleanup only; never forwarded to PageBroker.
+	Addressing        string              `json:"addressing,omitempty"`
+	AllowHTTP         bool                `json:"allowHttp,omitempty"`
+	CAFile            string              `json:"caFile,omitempty"`
+	Limits            *pageBrokerS3Limits `json:"limits,omitempty"`
 }
 
 // pageBrokerS3Limits mirrors PageBroker's "limits" object. PageBroker applies
@@ -56,6 +57,11 @@ func loadPageBrokerS3Settings(path string) (pageBrokerS3Settings, error) {
 }
 
 func (s pageBrokerS3Settings) validate() error {
+	switch s.CredentialsSource {
+	case "", "file", "workloadIdentity":
+	default:
+		return fmt.Errorf("PageBroker S3 credentialsSource must be file or workloadIdentity")
+	}
 	switch s.Addressing {
 	case "", "path", "virtual":
 	default:

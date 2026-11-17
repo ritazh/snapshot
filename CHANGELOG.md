@@ -34,6 +34,12 @@ commit-level history for each release is on its
 
 ### Added
 
+- Configurable operator service-account name and reuse of an existing account.
+
+- Opt-in CoreWeave OIDC credentials for S3 uploads, restores, and operator cleanup,
+  including automatic temporary-credential refresh. Secret-based authentication
+  remains the default. See [Configure Storage](docs/operate/configure-storage.md#coreweave-oidc-credentials).
+
 - Lifecycle hooks: `PodSnapshot.spec.containers` and
   `SnapshotJob.spec.podSnapshotTemplate.containers` can set a
   `checkpointReadinessProbe`, which decides when to checkpoint instead of the
@@ -160,6 +166,12 @@ commit-level history for each release is on its
   containers no longer run their own command, so nothing needs to stay inert.
   Snapshot never injected it. The `DYN_SNAPSHOT_RESTORE_STANDBY` alias is still
   removed in the next release.
+
+### Fixed
+
+- S3 cleanup honors explicit `storage.s3.addressing` instead of always using
+  path-style requests for custom endpoints. Unset addressing keeps existing defaults.
+
 
 ## [0.1.0] - 2026-09-06
 
